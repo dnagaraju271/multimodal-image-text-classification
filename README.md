@@ -77,17 +77,13 @@ Upload those four files to a Hugging Face **model** repository. The repository c
 
 The API downloads the four artifacts into `models/` when the status or prediction endpoint is first called. It reports ready only when all three Keras models and the vocabulary are available.
 
-### Hugging Face Docker Space deployment
+### Google Cloud Run deployment (selected)
 
-A Docker Space is a convenient host for the TensorFlow API. The included files are in `deploy/huggingface/`:
+The selected deployment keeps the private trained models in the Hugging Face model repository and runs this API on Google Cloud Run. The portfolio stays on GitHub Pages.
 
-1. Create a Hugging Face model repository and upload the four trained artifacts.
-2. Create a **Docker Space**. CPU Basic provides 2 vCPU and 16 GB RAM, but Hugging Face currently requires a PRO subscription for personal-account Docker Spaces on CPU Basic. Check the current plan before creating it.
-3. Copy `deploy/huggingface/Dockerfile` and `deploy/huggingface/README.md` into the root of the Space repository and push them.
-4. In Space Settings, add `HF_MODEL_REPO` as a Variable, `HF_TOKEN` as a Secret if the model repository is private, and `ALLOWED_ORIGINS=https://dnagaraju271.github.io` as a Variable.
-5. Wait for the Space to build, then verify `https://YOUR-SPACE.hf.space/api/health` and `/api/models/status`. Do not connect the portfolio until status reports all three models ready.
+Deployment files and step-by-step instructions are in [deploy/cloudrun/README.md](deploy/cloudrun/README.md). The root `Dockerfile` is used by Cloud Run source deployment, and `.dockerignore` excludes datasets, model files and local training outputs from the build context.
 
-The Space Dockerfile clones this public GitHub code repository at build time and runs the FastAPI API on port 7860. Rebuild the Space after changing API code. The API is a public inference endpoint, so monitor usage and hosting limits.
+Do not create a Hugging Face Docker Space for this deployment. A Google Cloud billing account is required even when aiming to stay within the Cloud Run free tier; the free tier is usage-based and does not cap spending. Set a billing budget alert and monitor usage.
 
 ### Local development
 
