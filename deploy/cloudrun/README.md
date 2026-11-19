@@ -23,10 +23,13 @@ The Cloud Run free tier is usage-based, not a hard spending cap. A Google Cloud 
 
 Create a Google Cloud project in the Cloud Console, link a billing account, and enable the Cloud Run, Cloud Build, Artifact Registry and Secret Manager APIs.
 
-Install and authenticate the Google Cloud CLI, then run:
+Open Cloud Shell from the Google Cloud Console (the terminal icon in the top-right). It already includes the Google Cloud CLI and is authenticated to your Google account.
+
+Clone this public source repository and select your project:
 
 ```bash
-gcloud auth login
+git clone https://github.com/dnagaraju271/multimodal-image-text-classification.git
+cd multimodal-image-text-classification
 gcloud config set project YOUR_GOOGLE_CLOUD_PROJECT_ID
 
 gcloud services enable \
@@ -44,7 +47,7 @@ In the terminal, enter the token without echoing it:
 
 ```bash
 read -s HF_TOKEN
-printf '%s' "$HF_TOKEN" | gcloud secrets create hf-model-token --data-file=-
+printf '%s' "$HF_TOKEN" | gcloud secrets create hf-model-token --replication-policy=automatic --data-file=-
 unset HF_TOKEN
 ```
 
