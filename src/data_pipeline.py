@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import hashlib
 import json
 import random
 import urllib.request
@@ -17,7 +18,8 @@ from src.config import (
     PROCESSED, RAW, SEQUENCE_LENGTH, TARGET_CATEGORIES,
 )
 
-ANNOTATIONS_URL = "https://images.cocodataset.org/annotations/annotations_trainval2017.zip"
+ANNOTATIONS_URL = "http://images.cocodataset.org/annotations/annotations_trainval2017.zip"
+ANNOTATIONS_SHA256 = "113a836d90195ee1f884e704da6304dfaaecff1f023f49b6ca93c4aaae470268"
 
 
 def _download(url: str, target: Path, timeout: int = 90) -> None:
@@ -48,8 +50,21 @@ def _ensure_annotations() -> Path:
     if all(p.exists() for p in required):
         return folder
     archive = RAW / "annotations_trainval2017.zip"
-    print("Downloading COCO 2017 annotations archive...")
-    _download(ANNOTATIONS_URL, archive, timeout=180)
+    # Re-download a stale or incomplete archive instead of trusting any non-empty file.
+    if archive.exists():
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        if digest != ANNOTATIONS_SHA256:
+            print("Existing annotation archive failed SHA-256 verification; downloading again.")
+            archive.unlink()
+    print("Downloading COCO 2017 annotations archive from the official HTTP endpoint...")
+    _download(ANNOTATIONS_URL, archive, timeout=240)
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    if digest != ANNOTATIONS_SHA256:
+        archive.unlink(missing_ok=True)
+        raise RuntimeError(
+            "COCO annotation archive SHA-256 mismatch. The download was removed; "
+            "check the network or use the official COCO download page."
+        )
     with zipfile.ZipFile(archive) as zf:
         zf.extractall(RAW)
     missing = [str(p) for p in required if not p.exists()]
@@ -109,8 +124,9 @@ def _balanced_subset(rows: list[dict], limit: int, seed: int) -> list[dict]:
 
 def _download_image(row: dict, split: str) -> tuple[dict, str | None]:
     target = RAW / "images" / f"{split}2017" / row["file_name"]
-    url = row["url"] or f"https://images.cocodataset.org/{split}2017/{row['file_name']}"
-    url = url.replace("http://", "https://", 1)
+    # COCO publishes these image endpoints as HTTP. Do not rewrite them to HTTPS:
+    # on some networks images.cocodataset.org presents a certificate for another hostname.
+    url = row["url"] or f"http://images.cocodataset.org/{split}2017/{row['file_name']}"
     try:
         _download(url, target, timeout=60)
         result = row.copy()
