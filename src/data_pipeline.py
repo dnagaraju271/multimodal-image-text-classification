@@ -266,6 +266,13 @@ def make_dataset(frame, vectorizer, modality: str, batch_size: int = 8, shuffle:
             inputs["image"] = tf.cast(image, tf.float32)
         if modality in ("text_only", "multimodal"):
             inputs["text"] = vectorizer(caption)
+
+        # A single-input Keras Functional model expects a tensor, not a
+        # one-key dictionary. Fusion accepts its named input dictionary.
+        if modality == "image_only":
+            return inputs["image"], target
+        if modality == "text_only":
+            return inputs["text"], target
         return inputs, target
 
     return ds.map(transform, num_parallel_calls=tf.data.AUTOTUNE).batch(batch_size).prefetch(tf.data.AUTOTUNE)
