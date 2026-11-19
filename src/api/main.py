@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from functools import lru_cache
 from pathlib import Path
 from io import BytesIO
@@ -8,6 +9,7 @@ from io import BytesIO
 import numpy as np
 import tensorflow as tf
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from PIL import Image, UnidentifiedImageError
 
@@ -20,12 +22,68 @@ MODEL_PATHS = {
     "text_only": MODELS / "text_only.keras",
     "multimodal": MODELS / "multimodal.keras",
 }
+VOCABULARY_PATH = MODELS / "text_vocabulary.json"
+MAX_UPLOAD_BYTES = 12 * 1024 * 1024
+ARTIFACT_PATTERNS = [
+    "image_only.keras",
+    "text_only.keras",
+    "multimodal.keras",
+    "text_vocabulary.json",
+]
+_ARTIFACT_DOWNLOAD_ATTEMPTED = False
+_ARTIFACT_DOWNLOAD_ERROR: str | None = None
 
 app = FastAPI(
     title="Multimodal Image + Text Classification",
     description="Research demo comparing image-only, caption-only and fused multi-label classifiers.",
-    version="1.0.0",
+    version="1.1.0",
 )
+
+# GitHub Pages hosts the browser interface; inference runs on a separate HTTPS API.
+_allowed_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "ALLOWED_ORIGINS",
+        "https://dnagaraju271.github.io,http://localhost:8000,http://127.0.0.1:8000",
+    ).split(",")
+    if origin.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allowed_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type"],
+)
+
+
+def _ensure_model_artifacts() -> None:
+    """Download private/public model artifacts from the Hugging Face Hub when configured."""
+    global _ARTIFACT_DOWNLOAD_ATTEMPTED, _ARTIFACT_DOWNLOAD_ERROR
+
+    if all(path.is_file() for path in MODEL_PATHS.values()) and VOCABULARY_PATH.is_file():
+        return
+
+    repo_id = os.getenv("HF_MODEL_REPO", "").strip()
+    if not repo_id or _ARTIFACT_DOWNLOAD_ATTEMPTED:
+        return
+
+    _ARTIFACT_DOWNLOAD_ATTEMPTED = True
+    try:
+        from huggingface_hub import snapshot_download
+
+        MODELS.mkdir(parents=True, exist_ok=True)
+        snapshot_download(
+            repo_id=repo_id,
+            repo_type="model",
+            token=os.getenv("HF_TOKEN") or None,
+            revision=os.getenv("HF_MODEL_REVISION", "main"),
+            allow_patterns=ARTIFACT_PATTERNS,
+            local_dir=str(MODELS),
+        )
+        _ARTIFACT_DOWNLOAD_ERROR = None
+    except Exception as exc:  # surfaced by the status endpoint without crashing app startup
+        _ARTIFACT_DOWNLOAD_ERROR = f"{type(exc).__name__}: {exc}"[:500]
 
 
 @app.get("/", include_in_schema=False)
@@ -35,18 +93,28 @@ def home():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "service": "multimodal-classifier-api"}
 
 
 @app.get("/api/models/status")
 def model_status():
+    _ensure_model_artifacts()
     states = {name: path.is_file() for name, path in MODEL_PATHS.items()}
+    vocabulary_ready = VOCABULARY_PATH.is_file()
+    ready = all(states.values()) and vocabulary_ready
+    if ready:
+        message = "All three models and the text vocabulary are ready."
+    elif _ARTIFACT_DOWNLOAD_ERROR:
+        message = f"Model artifact download failed: {_ARTIFACT_DOWNLOAD_ERROR}"
+    elif not os.getenv("HF_MODEL_REPO"):
+        message = "Model artifacts are missing. Configure HF_MODEL_REPO or place the trained files in models/."
+    else:
+        message = "Waiting for all three model files and the text vocabulary."
     return {
         "models": states,
-        "vocabulary": (MODELS / "text_vocabulary.json").is_file(),
-        "ready": any(states.values()),
-        "message": "Run python -m src.train before making predictions."
-        if not any(states.values()) else "Available model files are listed.",
+        "vocabulary": vocabulary_ready,
+        "ready": ready,
+        "message": message,
     }
 
 
@@ -60,18 +128,26 @@ def metrics():
 
 @lru_cache(maxsize=1)
 def _load_artifacts():
+    _ensure_model_artifacts()
+    missing = [str(path.name) for path in MODEL_PATHS.values() if not path.is_file()]
+    if missing or not VOCABULARY_PATH.is_file():
+        raise HTTPException(
+            status_code=503,
+            detail="The inference service is not ready. Required model files and text vocabulary are not all available.",
+        )
+
     models = {
         name: tf.keras.models.load_model(path, compile=False)
-        for name, path in MODEL_PATHS.items() if path.exists()
+        for name, path in MODEL_PATHS.items()
     }
-    vectorizer = None
-    vocabulary_path = MODELS / "text_vocabulary.json"
-    if vocabulary_path.exists():
-        vocabulary = json.loads(vocabulary_path.read_text(encoding="utf-8"))
-        vectorizer = tf.keras.layers.TextVectorization(
-            max_tokens=None, output_mode="int", output_sequence_length=60,
-            standardize="lower_and_strip_punctuation", vocabulary=vocabulary,
-        )
+    vocabulary = json.loads(VOCABULARY_PATH.read_text(encoding="utf-8"))
+    vectorizer = tf.keras.layers.TextVectorization(
+        max_tokens=None,
+        output_mode="int",
+        output_sequence_length=60,
+        standardize="lower_and_strip_punctuation",
+        vocabulary=vocabulary,
+    )
     return models, vectorizer
 
 
@@ -101,28 +177,26 @@ def _format_scores(model, inputs):
 
 
 @app.post("/api/predict")
-async def predict(file: UploadFile = File(...), caption: str = Form("")):
+async def predict(file: UploadFile = File(...), caption: str = Form(...)):
     if file.content_type and not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Select an image file.")
+    if not caption or not caption.strip():
+        raise HTTPException(status_code=400, detail="Enter the caption associated with the image.")
     content = await file.read()
-    if len(content) > 12 * 1024 * 1024:
+    if not content:
+        raise HTTPException(status_code=400, detail="The uploaded image is empty.")
+    if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="Maximum upload size is 12 MB.")
+
     image = _image_tensor(content)
     models, vectorizer = _load_artifacts()
-    if not models:
-        raise HTTPException(
-            status_code=503,
-            detail="Trained model files are missing. Run python -m src.train first.",
-        )
+    tokens = vectorizer(tf.constant([caption.strip()])).numpy()
 
-    results = {}
-    for name, model in models.items():
-        if name == "image_only":
-            results[name] = _format_scores(model, image)
-        elif vectorizer is not None:
-            tokens = vectorizer(tf.constant([caption])).numpy()
-            if name == "text_only":
-                results[name] = _format_scores(model, tokens)
-            else:
-                results[name] = _format_scores(model, {"image": image, "text": tokens})
+    results = {
+        "image_only": _format_scores(models["image_only"], image),
+        "text_only": _format_scores(models["text_only"], tokens),
+        "multimodal": _format_scores(
+            models["multimodal"], {"image": image, "text": tokens}
+        ),
+    }
     return {"results": results, "classes": CLASSES}
