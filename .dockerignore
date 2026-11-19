@@ -1,0 +1,14 @@
+.git
+.github
+.venv
+venv
+**/__pycache__
+*.py[cod]
+*.log
+.DS_Store
+.ipynb_checkpoints
+dataset/
+models/
+results/
+notebooks/
+tests/
