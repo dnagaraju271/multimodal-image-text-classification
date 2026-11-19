@@ -55,3 +55,42 @@ Macro/micro precision, recall and F1, mean average precision (mAP), exact-match 
 - Vocabulary is adapted on each training partition only.
 - All models use the same examples and target labels.
 - Dataset, trained weights and generated results are excluded from Git.
+
+
+## Host the live inference API
+
+The portfolio's interactive demo runs in the browser on GitHub Pages and sends image-caption pairs to this FastAPI service. The API must run on a separate Python host; GitHub Pages cannot execute TensorFlow.
+
+### Model artifact storage
+
+Keep the three trained model files and vocabulary out of Git:
+- `image_only.keras`
+- `text_only.keras`
+- `multimodal.keras`
+- `text_vocabulary.json`
+
+Upload those four files to a Hugging Face **model** repository. The repository can be private. Configure these environment variables on the API host:
+
+- `HF_MODEL_REPO=your-account/your-model-repository`
+- `HF_TOKEN` = a read token with access to the model repository (required only for a private model repo)
+- `ALLOWED_ORIGINS=https://dnagaraju271.github.io`
+
+The API downloads the four artifacts into `models/` when the status or prediction endpoint is first called. It reports ready only when all three Keras models and the vocabulary are available.
+
+### Hugging Face Docker Space deployment
+
+A Docker Space is a convenient host for the TensorFlow API. The included files are in `deploy/huggingface/`:
+
+1. Create a Hugging Face model repository and upload the four trained artifacts.
+2. Create a **Docker Space**. CPU Basic provides 2 vCPU and 16 GB RAM, but Hugging Face currently requires a PRO subscription for personal-account Docker Spaces on CPU Basic. Check the current plan before creating it.
+3. Copy `deploy/huggingface/Dockerfile` and `deploy/huggingface/README.md` into the root of the Space repository and push them.
+4. In Space Settings, add `HF_MODEL_REPO` as a Variable, `HF_TOKEN` as a Secret if the model repository is private, and `ALLOWED_ORIGINS=https://dnagaraju271.github.io` as a Variable.
+5. Wait for the Space to build, then verify `https://YOUR-SPACE.hf.space/api/health` and `/api/models/status`. Do not connect the portfolio until status reports all three models ready.
+
+The Space Dockerfile clones this public GitHub code repository at build time and runs the FastAPI API on port 7860. Rebuild the Space after changing API code. The API is a public inference endpoint, so monitor usage and hosting limits.
+
+### Local development
+
+    uvicorn src.api.main:app --reload
+
+The local endpoint remains at `http://127.0.0.1:8000`.
