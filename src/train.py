@@ -73,7 +73,8 @@ def main():
             fine_tune=args.fine_tune,
         )
         model.save(MODELS / f"{kind}.keras")
-        print(f"Saved {kind}; epochs completed: {len(history.history.get('loss', []))}")
+        completed = getattr(history, "total_epochs_completed", len(history.history.get("loss", [])))
+        print(f"Saved {kind}; total epochs completed across all phases: {completed}")
     evaluate_saved(frame, vectorizer)
 
 
