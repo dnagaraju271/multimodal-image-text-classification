@@ -22,7 +22,7 @@
 <form id="form">
 <label class="upload" for="file"><input id="file" type="file" accept="image/*" required><span id="upload-title">＋ Choose an image</span><small>JPEG, PNG or WebP · maximum 12 MB</small><img id="preview" alt="Image preview" hidden></label>
 <label for="caption">Caption</label>
-<textarea id="caption" rows="3" placeholder="Enter the caption associated with the image…"></textarea>
+<textarea id="caption" rows="3" placeholder="Enter the caption associated with the image…" required></textarea>
 <button id="run" type="submit">Compare model predictions →</button>
 <p id="message" class="muted" aria-live="polite">Model artifacts must be trained before predictions are available.</p>
 </form>
@@ -44,7 +44,7 @@
 <script>
 const $=id=>document.getElementById(id);
 const titles={image_only:"Image-only CNN",text_only:"Text-only BiLSTM",multimodal:"Multimodal fusion"};
-async function status(){try{const r=await fetch("/api/models/status");const d=await r.json();const n=Object.values(d.models).filter(Boolean).length;$("status").textContent=n+"/3 trained model files available";$("status").style.color=n===3?"#7ce0c3":"#f0c778"}catch(e){$("status").textContent="API unavailable"}}
+async function status(){try{const r=await fetch("/api/models/status");const d=await r.json();const n=Object.values(d.models).filter(Boolean).length;$("status").textContent=d.ready?"3/3 trained models + text vocabulary ready":d.message;$("status").style.color=d.ready?"#7ce0c3":"#f0c778"}catch(e){$("status").textContent="API unavailable"}}
 $("file").addEventListener("change",()=>{const f=$("file").files[0];if(!f)return;$("upload-title").textContent=f.name;$("preview").src=URL.createObjectURL(f);$("preview").hidden=false});
 function card(name,data){const el=document.createElement("article");el.className="card";const h=document.createElement("h3");h.textContent=titles[name]||name;const p=document.createElement("p");p.className="pred";p.textContent="Predicted: "+(data.predicted_labels.length?data.predicted_labels.join(", "):"no class above threshold");el.append(h,p);data.ranked_classes.forEach(x=>{const row=document.createElement("div");row.className="score";const l=document.createElement("span");l.textContent=x.class;const track=document.createElement("div");track.className="track";const fill=document.createElement("div");fill.className="fill";fill.style.width=(x.probability*100)+"%";track.append(fill);const pct=document.createElement("span");pct.className="pct";pct.textContent=(x.probability*100).toFixed(1)+"%";row.append(l,track,pct);el.append(row)});return el}
 $("form").addEventListener("submit",async e=>{e.preventDefault();const file=$("file").files[0];if(!file){$("message").textContent="Choose an image first.";return}const body=new FormData();body.append("file",file);body.append("caption",$("caption").value);$("run").disabled=true;$("run").textContent="Running inference…";$("message").textContent="Evaluating the same pair across available models.";try{const response=await fetch("/api/predict",{method:"POST",body});const data=await response.json();if(!response.ok)throw new Error(data.detail||"Prediction failed");$("predictions").replaceChildren(...Object.entries(data.results).map(([name,result])=>card(name,result)));$("message").textContent="Predictions completed. Scores are independent sigmoid probabilities."}catch(err){$("message").textContent=err.message}finally{$("run").disabled=false;$("run").textContent="Compare model predictions →"}});
