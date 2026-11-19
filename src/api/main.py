@@ -118,11 +118,11 @@ async def predict(file: UploadFile = File(...), caption: str = Form("")):
     results = {}
     for name, model in models.items():
         if name == "image_only":
-            results[name] = _format_scores(model, {"image": image})
+            results[name] = _format_scores(model, image)
         elif vectorizer is not None:
             tokens = vectorizer(tf.constant([caption])).numpy()
             if name == "text_only":
-                results[name] = _format_scores(model, {"text": tokens})
+                results[name] = _format_scores(model, tokens)
             else:
                 results[name] = _format_scores(model, {"image": image, "text": tokens})
     return {"results": results, "classes": CLASSES}
