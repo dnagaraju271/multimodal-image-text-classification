@@ -56,15 +56,18 @@ def fit_model(
     _compile(model, train_frame, learning_rate)
     train_ds = make_dataset(train_frame, vectorizer, kind, batch_size, shuffle=True)
     val_ds = make_dataset(validation_frame, vectorizer, kind, batch_size, shuffle=False)
-    callbacks = [tf.keras.callbacks.EarlyStopping(
-        monitor="val_loss", patience=2, restore_best_weights=True
-    )]
     use_fine_tuning = fine_tune and kind in ("image_only", "multimodal") and epochs >= 3
     frozen_epochs = max(1, epochs - 2) if use_fine_tuning else epochs
-    history = model.fit(
+    first_callbacks = [tf.keras.callbacks.EarlyStopping(
+        monitor="val_loss", patience=2, restore_best_weights=True
+    )]
+    first_history = model.fit(
         train_ds, validation_data=val_ds, epochs=frozen_epochs,
-        callbacks=callbacks, verbose=verbose,
+        callbacks=first_callbacks, verbose=verbose, shuffle=False,
     )
+    total_epochs_completed = len(first_history.history.get("loss", []))
+    history = first_history
+
     if use_fine_tuning:
         encoder = model.get_layer("image_encoder")
         encoder.trainable = True
@@ -77,10 +80,18 @@ def fit_model(
             else:
                 layer.trainable = True
         _compile(model, train_frame, learning_rate / 10.0)
+        second_callbacks = [tf.keras.callbacks.EarlyStopping(
+            monitor="val_loss", patience=2, restore_best_weights=True
+        )]
         history = model.fit(
             train_ds, validation_data=val_ds, initial_epoch=frozen_epochs,
-            epochs=epochs, callbacks=callbacks, verbose=verbose,
+            epochs=epochs, callbacks=second_callbacks, verbose=verbose, shuffle=False,
         )
+        total_epochs_completed += len(history.history.get("loss", []))
+
+    # Keras History contains only the most recent .fit() call. Preserve the
+    # total across frozen and fine-tuning phases for accurate experiment logs.
+    history.total_epochs_completed = total_epochs_completed
     return model, history
 
 
