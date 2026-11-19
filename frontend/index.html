@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Multimodal Classification Lab</title>
+<style>
+:root{color-scheme:dark;--bg:#0a0e14;--panel:#121a25;--line:#29394a;--ink:#eef4fa;--muted:#9baabd;--mint:#7ce0c3;--blue:#9bbcff}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0%,#19313b 0,transparent 34rem),radial-gradient(circle at 90% 18%,#23213e 0,transparent 30rem),var(--bg);color:var(--ink);font:15px/1.55 Inter,system-ui,-apple-system,sans-serif}.shell{width:min(1060px,calc(100% - 34px));margin:auto;padding:58px 0 30px}.eyebrow{font-size:11px;letter-spacing:.17em;font-weight:800;color:var(--mint)}h1{font-size:clamp(42px,7vw,74px);line-height:.98;letter-spacing:-.055em;margin:17px 0}h1 span{color:var(--mint)}.hero p{max-width:610px;color:var(--muted);font-size:17px}.status,.pill{display:inline-block;padding:6px 11px;border:1px solid var(--line);border-radius:99px;color:var(--muted);font-size:12px;margin-top:10px}.panel{margin:18px 0;padding:25px;border:1px solid var(--line);border-radius:17px;background:rgba(18,26,37,.94)}.head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:20px}.head h2{font-size:21px;margin:5px 0 0}label{font-weight:700;font-size:13px}.upload{min-height:170px;border:1px dashed #526b7b;border-radius:13px;background:#172332;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:7px;cursor:pointer;text-align:center;overflow:hidden}.upload input{width:1px;height:1px;position:absolute;opacity:0}.upload img{max-width:100%;max-height:220px;object-fit:contain;border-radius:8px}.upload small,.muted{color:var(--muted)}textarea{width:100%;margin-top:8px;background:#0b121b;border:1px solid var(--line);border-radius:10px;padding:13px;color:var(--ink);font:inherit;resize:vertical}button{width:100%;border:0;border-radius:10px;margin-top:16px;padding:14px;background:var(--mint);color:#07130f;font:inherit;font-weight:800;cursor:pointer}button:disabled{opacity:.6;cursor:wait}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.card{padding:16px;background:#0d151f;border:1px solid var(--line);border-radius:12px;min-width:0}.card h3{font-size:15px;margin:0 0 8px}.card p{font-size:12px;color:var(--muted)}.pred{color:var(--mint)!important;min-height:34px}.score{display:grid;grid-template-columns:55px 1fr 42px;align-items:center;gap:7px;margin:8px 0;font-size:11px}.track{height:6px;background:#26384a;border-radius:99px;overflow:hidden}.fill{height:100%;background:linear-gradient(90deg,var(--mint),var(--blue))}.pct{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.metric{padding:15px;background:#0d151f;border:1px solid var(--line);border-radius:10px}.metric strong{display:block;color:var(--mint);font-size:25px}footer{text-align:center;color:var(--muted);font-size:12px;padding:22px}a{color:var(--blue)}@media(max-width:740px){.grid{grid-template-columns:1fr}.metrics{grid-template-columns:1fr 1fr}.panel{padding:17px}.shell{padding-top:32px}.head{align-items:flex-start;flex-direction:column}}
+</style>
+</head>
+<body>
+<main class="shell">
+<header class="hero">
+<div class="eyebrow">ISEP · DEEP LEARNING RESEARCH</div>
+<h1>Image + Text<br><span>Classification Lab</span></h1>
+<p>Compare the visual signal, the caption signal, and their fused representation using the same six multi-label categories.</p>
+<div id="status" class="status">Checking model files…</div>
+</header>
+<section class="panel">
+<div class="head"><div><div class="eyebrow">01 / INPUT</div><h2>Submit an image-caption pair</h2></div></div>
+<form id="form">
+<label class="upload" for="file"><input id="file" type="file" accept="image/*" required><span id="upload-title">＋ Choose an image</span><small>JPEG, PNG or WebP · maximum 12 MB</small><img id="preview" alt="Image preview" hidden></label>
+<label for="caption">Caption</label>
+<textarea id="caption" rows="3" placeholder="Enter the caption associated with the image…"></textarea>
+<button id="run" type="submit">Compare model predictions →</button>
+<p id="message" class="muted" aria-live="polite">Model artifacts must be trained before predictions are available.</p>
+</form>
+</section>
+<section class="panel">
+<div class="head"><div><div class="eyebrow">02 / INFERENCE</div><h2>Model outputs</h2></div><span class="pill">Sigmoid threshold 0.50</span></div>
+<div id="predictions" class="grid">
+<article class="card"><h3>Image-only CNN</h3><p>EfficientNetB0 visual representation.</p></article>
+<article class="card"><h3>Text-only BiLSTM</h3><p>Learned word embeddings and recurrent caption features.</p></article>
+<article class="card"><h3>Multimodal fusion</h3><p>Concatenated image and caption representations.</p></article>
+</div>
+</section>
+<section class="panel">
+<div class="head"><div><div class="eyebrow">03 / HELD-OUT RESULTS</div><h2>Validation performance</h2></div></div>
+<div id="metrics" class="metrics muted">Evaluation metrics appear here after training.</div>
+</section>
+<footer>Research prototype · MS COCO 2017 · <a href="/docs">FastAPI documentation</a></footer>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const titles={image_only:"Image-only CNN",text_only:"Text-only BiLSTM",multimodal:"Multimodal fusion"};
+async function status(){try{const r=await fetch("/api/models/status");const d=await r.json();const n=Object.values(d.models).filter(Boolean).length;$("status").textContent=n+"/3 trained model files available";$("status").style.color=n===3?"#7ce0c3":"#f0c778"}catch(e){$("status").textContent="API unavailable"}}
+$("file").addEventListener("change",()=>{const f=$("file").files[0];if(!f)return;$("upload-title").textContent=f.name;$("preview").src=URL.createObjectURL(f);$("preview").hidden=false});
+function card(name,data){const el=document.createElement("article");el.className="card";const h=document.createElement("h3");h.textContent=titles[name]||name;const p=document.createElement("p");p.className="pred";p.textContent="Predicted: "+(data.predicted_labels.length?data.predicted_labels.join(", "):"no class above threshold");el.append(h,p);data.ranked_classes.forEach(x=>{const row=document.createElement("div");row.className="score";const l=document.createElement("span");l.textContent=x.class;const track=document.createElement("div");track.className="track";const fill=document.createElement("div");fill.className="fill";fill.style.width=(x.probability*100)+"%";track.append(fill);const pct=document.createElement("span");pct.className="pct";pct.textContent=(x.probability*100).toFixed(1)+"%";row.append(l,track,pct);el.append(row)});return el}
+$("form").addEventListener("submit",async e=>{e.preventDefault();const file=$("file").files[0];if(!file){$("message").textContent="Choose an image first.";return}const body=new FormData();body.append("file",file);body.append("caption",$("caption").value);$("run").disabled=true;$("run").textContent="Running inference…";$("message").textContent="Evaluating the same pair across available models.";try{const response=await fetch("/api/predict",{method:"POST",body});const data=await response.json();if(!response.ok)throw new Error(data.detail||"Prediction failed");$("predictions").replaceChildren(...Object.entries(data.results).map(([name,result])=>card(name,result)));$("message").textContent="Predictions completed. Scores are independent sigmoid probabilities."}catch(err){$("message").textContent=err.message}finally{$("run").disabled=false;$("run").textContent="Compare model predictions →"}});
+async function metrics(){try{const r=await fetch("/api/metrics");const d=await r.json();if(!d.available){$("metrics").textContent=d.message;return}const items=Object.entries(d.report.models||{}).map(([name,m])=>{const el=document.createElement("div");el.className="metric";const title=document.createElement("small");title.textContent=titles[name]||name;const f=document.createElement("strong");f.textContent=Number(m.macro_f1).toFixed(3);const detail=document.createElement("small");detail.textContent="Macro F1 · mAP "+Number(m.mean_average_precision).toFixed(3);el.append(title,f,detail);return el});$("metrics").replaceChildren(...items)}catch(e){$("metrics").textContent="Could not load metrics"}}
+status();metrics();
+</script>
+</body>
+</html>

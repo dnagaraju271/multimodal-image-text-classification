@@ -1,34 +1,24 @@
-# Python
 __pycache__/
 *.py[cod]
+.pytest_cache/
 .venv/
 venv/
-
-# Dataset files
+.env
+.DS_Store
+.ipynb_checkpoints/
 dataset/raw/*
-dataset/processed/*
 !dataset/raw/README.md
+dataset/processed/*
 !dataset/processed/README.md
-
-# Model weights
 models/*
+!models/README.md
 *.keras
 *.h5
+*.weights.h5
 *.pth
 *.pt
 *.onnx
-
-# Results generated during experiments
 results/*
 !results/README.md
 !results/figures/
 results/figures/*
-
-# Jupyter
-.ipynb_checkpoints/
-
-# macOS
-.DS_Store
-
-# Secrets
-.env
