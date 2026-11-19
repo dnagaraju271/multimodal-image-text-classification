@@ -166,10 +166,7 @@ def prepare(max_train: int = 3000, max_val: int = 750, workers: int = 8) -> pd.D
     frame.assign(labels=frame.labels.map(json.dumps)).to_csv(MANIFEST, index=False)
     coverage = {}
     for split, group in frame.groupby("split"):
-        coverage[split] = {
-            name: int(group.labels.map(lambda text: name in json.loads(text)).sum())
-            for name in CLASSES
-        }
+        coverage[split] = class_image_counts(group, labels_column="labels")
     report = {
         "task": "multi-label classification",
         "classes": CLASSES,
@@ -215,8 +212,30 @@ def load_manifest() -> pd.DataFrame:
     return frame
 
 
+def _labels_as_list(value) -> list[str]:
+    """Normalize labels held as Python lists or JSON-serialized CSV strings."""
+    if isinstance(value, str):
+        value = json.loads(value)
+    if not isinstance(value, (list, tuple, set)):
+        raise TypeError(f"Expected labels as a list or JSON string, got {type(value).__name__}.")
+    return list(value)
+
+
+def class_image_counts(frame: pd.DataFrame, labels_column: str = "labels") -> dict[str, int]:
+    """Count images containing each class; one image may count for multiple classes."""
+    counts = {name: 0 for name in CLASSES}
+    for value in frame[labels_column]:
+        present = set(_labels_as_list(value))
+        for name in CLASSES:
+            counts[name] += int(name in present)
+    return counts
+
+
 def label_matrix(frame: pd.DataFrame) -> np.ndarray:
-    return np.asarray([[int(label in row) for label in CLASSES] for row in frame.labels_list], dtype="float32")
+    return np.asarray(
+        [[int(label in row) for label in CLASSES] for row in frame.labels_list],
+        dtype="float32",
+    )
 
 
 def fit_vectorizer(captions):
