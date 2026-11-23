@@ -22,13 +22,19 @@ The experiments use a bounded subset of MS COCO 2017. The six target categories 
 
 The trained models have been evaluated on 750 held-out images. A FastAPI service also provides real inference for a newly uploaded image and caption, and a browser dashboard displays the three model outputs side by side.
 
-### Important architecture note for academic review
+### Academic decisions confirmed with the professor
 
-The current implementation treats the task as **multi-label classification**: one image can contain more than one of the six target classes. Accordingly, the output layer produces six independent logits, inference applies a sigmoid to each logit, and training uses weighted Binary Cross-Entropy.
+The professor confirmed that either **Softmax or Sigmoid** can be used and that a **BiLSTM** is acceptable. This project keeps **Sigmoid** because the selected COCO labels are multi-label: one image may contain several of the six target categories at the same time. Sigmoid gives each class an independent score; Softmax would force the six scores to compete as mutually exclusive alternatives.
 
-The supplied project brief describes a final Softmax classifier. Softmax assumes mutually exclusive classes, whereas the COCO labels in this implementation can overlap. This difference is documented rather than hidden. Confirmation from the professor is requested on whether the multi-label formulation is acceptable or whether the dataset must be filtered to single-target images and the models retrained with Softmax.
+The text branch uses a trainable Keras embedding layer learned from the training captions, followed by a Bidirectional LSTM. The embedding vectors are learned during this project's training; pretrained GloVe or Word2Vec initialization is not used in the current implementation.
 
-The text branch currently uses a trainable Keras embedding layer learned from the training captions. It does **not** currently initialize embeddings from pretrained GloVe or Word2Vec vectors. This is also identified for confirmation against the professor's expectations.
+### How to interpret a live prediction
+
+The **primary answer to “what is in this image?” is the Image-only CNN prediction**. That branch receives image pixels only; the caption is never passed to it. A caption is optional in the live dashboard. When a caption is supplied, the dashboard additionally runs:
+- **Text-only BiLSTM:** reads the caption only. It predicts among the six supported labels; it cannot output a category such as “train” because train is not one of the six target classes.
+- **Multimodal fusion:** receives both the image and caption, so its output can be influenced by a caption that does not accurately describe the image.
+
+Differences between those three outputs are part of the experiment: they show what each modality contributes. The image-only result remains independent of the caption.
 
 ---
 
@@ -168,15 +174,32 @@ The image and text encoders are trained jointly with the fusion head. The image 
 | Text-only | Caption | Embedding + BiLSTM | Dense head |
 | Multimodal | Image + caption | EfficientNetB0 + BiLSTM | Concatenation + Dense fusion head |
 
-### 4.5 Current output activation and loss
+### 4.5 Activation, loss function and optimisation
 
-The model heads return six logits. During inference, sigmoid is applied independently to each class:
+The same output/loss/optimisation strategy is used for the image-only, text-only and fusion classifiers.
+
+| Component | Choice in this project | Explanation |
+|---|---|---|
+| Hidden-layer activation | **ReLU** | Used in the image, text and fusion projection layers to introduce non-linearity. |
+| Output activation | **Sigmoid** (independent per class) | Converts each of the six output logits into an independent probability. Several classes may be predicted for one image. |
+| Loss function | **Class-weighted Binary Cross-Entropy with logits** | Suitable for multi-label targets. The positive weight compensates for class-frequency imbalance. |
+| Optimizer | **Adam** | Updates model parameters using adaptive estimates of first and second moments of the gradients. |
+| Initial learning rate | **0.0001 (1 × 10⁻⁴)** | Used for the initial training stage. |
+| Fine-tuning learning rate | **0.00001 (1 × 10⁻⁵)** | One tenth of the initial learning rate for the unfrozen EfficientNetB0 layers. |
+
+The final Dense layer produces six raw logits (z_i). The sigmoid operation is:
 
 `p_i = 1 / (1 + exp(-z_i))`
 
-A prediction is selected when its probability is at least 0.50. Multiple classes can therefore be predicted for the same image.
+The implementation passes logits directly to TensorFlow's numerically stable weighted cross-entropy operation during training. At inference, sigmoid converts those logits to probabilities. The default decision threshold is 0.50.
 
-Training uses class-weighted Binary Cross-Entropy. Positive class weights are calculated from the training-label counts and clipped to the interval [1, 10]. This choice matches the current multi-label dataset. It differs from the Softmax formulation described in the professor's brief and is awaiting confirmation.
+For a target (y\in\{0,1\}), logit (z), and positive-class weight (w^+_c), the class-weighted binary loss is:
+
+`L(z,y) = -[w⁺ᶜ · y · log(σ(z)) + (1-y) · log(1-σ(z))]`
+
+The positive weight for each class is calculated from the training labels as negative-count / positive-count and clipped to [1, 10]. The loss is averaged across classes and examples.
+
+**Why Sigmoid rather than Softmax?** An image can contain more than one selected COCO category, so the labels are not mutually exclusive. Sigmoid + weighted Binary Cross-Entropy represents this multi-label structure. Softmax would be the better choice only after converting the task to mutually exclusive single-label classification, which is not the current dataset formulation.
 
 ---
 
@@ -195,8 +218,8 @@ The training code uses TensorFlow/Keras.
 | Text projection | 128 units |
 | Fusion dense layers | 256 and 128 units |
 | Optimizer | Adam |
-| Default initial learning rate | 0.0001 |
-| Fine-tuning learning rate | One tenth of the initial learning rate |
+| Default initial learning rate | 0.0001 (1 × 10⁻⁴) |
+| Fine-tuning learning rate | 0.00001 (1 × 10⁻⁵), one tenth of the initial learning rate |
 | Batch size in recorded training run | 8 |
 | Requested maximum epochs in recorded run | 8 |
 | Main dropout | 0.4 |
@@ -249,6 +272,8 @@ The results support a measured conclusion: fusion improves some metrics, particu
 
 The saved results are distinct from individual live-demo predictions. A single uploaded-image probability is not a replacement for held-out dataset evaluation.
 
+The live dashboard's primary visual prediction is the highest-scoring class from the image-only CNN. Its score details remain available for all six classes because the underlying task is multi-label. A supplied caption does not alter this image-only output; it only enables the separate BiLSTM and fusion comparisons.
+
 ---
 
 ## 7. Live inference demonstration
@@ -258,7 +283,7 @@ The saved results are distinct from individual live-demo predictions. A single u
 - [Project overview](https://dnagaraju271.github.io/projects/multimodal-classification/)
 - [Interactive live dashboard](https://dnagaraju271.github.io/projects/multimodal-classification/live/)
 
-The static frontend is hosted on GitHub Pages. The TensorFlow inference service runs separately using FastAPI.
+The static frontend is hosted on GitHub Pages. The TensorFlow inference service runs separately using FastAPI. The dashboard highlights the top-ranked Image-only CNN class as the primary visual prediction and places the caption-only and fused outputs in a separate comparison area.
 
 ### 7.2 API endpoints
 
@@ -269,7 +294,7 @@ The static frontend is hosted on GitHub Pages. The TensorFlow inference service 
 | `GET /api/metrics` | Return the saved held-out evaluation report |
 | `POST /api/predict` | Accept an image and caption and return predictions from all three models |
 
-The prediction endpoint accepts an image file and a caption as multipart form fields. The current maximum upload size is 12 MB. The service resizes the image, vectorizes the caption, loads the saved model artifacts, applies sigmoid to each model's logits and returns the ranked class probabilities and labels above threshold 0.50.
+The prediction endpoint accepts an image file and an optional caption as multipart form fields. The current maximum upload size is 12 MB. The service always runs the image-only CNN using the image pixels. If a non-empty caption is supplied, it also vectorizes the caption and runs the text-only BiLSTM and multimodal fusion models. Sigmoid is applied to each model's logits; per-class scores are returned, and labels above threshold 0.50 are marked as predicted.
 
 ### 7.3 Live demo architecture
 
@@ -393,7 +418,7 @@ Large dataset files, trained model weights and generated experiment outputs are 
 
 ## 10. Limitations and open questions
 
-1. **Softmax versus sigmoid:** the assignment brief specifies Softmax, while the current multi-label COCO formulation uses independent sigmoid outputs and weighted Binary Cross-Entropy. Professor confirmation is required. A single-label Softmax formulation would require a mutually exclusive target construction, model/loss changes and retraining.
+1. **Multi-label output:** the professor confirmed that either Softmax or Sigmoid is acceptable. Sigmoid was selected because COCO images can contain multiple selected classes. A Softmax version would require mutually exclusive single-label targets, model/loss changes and retraining.
 2. **Embedding choice:** the current text embedding is trainable from this project's training captions; pretrained GloVe or Word2Vec vectors are not currently used. Confirm whether this satisfies the expected embedding method.
 3. **Bounded dataset:** 3,750 images and six selected classes are a subset of COCO 2017, not the full dataset distribution.
 4. **Caption ambiguity:** captions may omit objects that are visibly present in an image.
@@ -416,8 +441,8 @@ Large dataset files, trained model weights and generated experiment outputs are 
 | Automated tests | 5 passed |
 | Cross-validation results | Not yet generated |
 | Hyperparameter-search results | Not yet generated |
-| Professor confirmation on output activation/loss | Pending |
-| Professor confirmation on embedding method | Pending |
+| Output activation and loss choice | Sigmoid + weighted Binary Cross-Entropy selected with professor's permission |
+| BiLSTM architecture | Accepted by professor; trainable Keras embeddings used |
 | Mathematical technical report | To be completed |
 | Final presentation | To be completed |
 
