@@ -177,11 +177,9 @@ def _format_scores(model, inputs):
 
 
 @app.post("/api/predict")
-async def predict(file: UploadFile = File(...), caption: str = Form(...)):
+async def predict(file: UploadFile = File(...), caption: str = Form("")):
     if file.content_type and not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Select an image file.")
-    if not caption or not caption.strip():
-        raise HTTPException(status_code=400, detail="Enter the caption associated with the image.")
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="The uploaded image is empty.")
@@ -190,13 +188,23 @@ async def predict(file: UploadFile = File(...), caption: str = Form(...)):
 
     image = _image_tensor(content)
     models, vectorizer = _load_artifacts()
-    tokens = vectorizer(tf.constant([caption.strip()])).numpy()
 
+    # The image-only branch is the primary visual prediction and never receives the caption.
     results = {
         "image_only": _format_scores(models["image_only"], image),
-        "text_only": _format_scores(models["text_only"], tokens),
-        "multimodal": _format_scores(
-            models["multimodal"], {"image": image, "text": tokens}
-        ),
     }
-    return {"results": results, "classes": CLASSES}
+
+    # Run text and fusion branches only when the user supplies a caption for comparison.
+    caption_text = caption.strip() if caption else ""
+    if caption_text:
+        tokens = vectorizer(tf.constant([caption_text])).numpy()
+        results["text_only"] = _format_scores(models["text_only"], tokens)
+        results["multimodal"] = _format_scores(
+            models["multimodal"], {"image": image, "text": tokens}
+        )
+
+    return {
+        "results": results,
+        "classes": CLASSES,
+        "prediction_mode": "image_only" if not caption_text else "image_plus_caption",
+    }
