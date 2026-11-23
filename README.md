@@ -419,7 +419,7 @@ Large dataset files, trained model weights and generated experiment outputs are 
 ## 10. Limitations and open questions
 
 1. **Multi-label output:** the professor confirmed that either Softmax or Sigmoid is acceptable. Sigmoid was selected because COCO images can contain multiple selected classes. A Softmax version would require mutually exclusive single-label targets, model/loss changes and retraining.
-2. **Embedding choice:** the current text embedding is trainable from this project's training captions; pretrained GloVe or Word2Vec vectors are not currently used. Confirm whether this satisfies the expected embedding method.
+2. **Embedding representation:** the current trainable Keras embedding is learned from the training captions; pretrained GloVe or Word2Vec vectors are not used. Rare words and words outside the fitted vocabulary may be represented poorly.
 3. **Bounded dataset:** 3,750 images and six selected classes are a subset of COCO 2017, not the full dataset distribution.
 4. **Caption ambiguity:** captions may omit objects that are visibly present in an image.
 5. **No localization:** this is image-level multi-label classification; it does not output bounding boxes or object counts.
@@ -436,8 +436,8 @@ Large dataset files, trained model weights and generated experiment outputs are 
 | COCO subset and manifest (3,750 images) | Verified |
 | Three trained Keras models and vocabulary | Available locally |
 | Held-out comparison on 750 images | Saved and verified |
-| FastAPI service and live three-model inference | Demonstrated |
-| GitHub Pages dashboard | Published |
+| FastAPI image-only inference and optional three-branch comparison | Implemented; local demo to be rechecked after pulling latest changes |
+| GitHub Pages dashboard | Updated with image-only primary output and optional caption comparisons |
 | Automated tests | 5 passed |
 | Cross-validation results | Not yet generated |
 | Hyperparameter-search results | Not yet generated |
