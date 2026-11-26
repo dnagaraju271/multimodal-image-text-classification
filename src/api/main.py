@@ -101,10 +101,45 @@ def model_status():
     _ensure_model_artifacts()
     states = {name: path.is_file() for name, path in MODEL_PATHS.items()}
     vocabulary_ready = VOCABULARY_PATH.is_file()
-    ready = all(states.values()) and vocabulary_ready
-    if ready:
-        message = "All three models and the text vocabulary are ready."
-    elif _ARTIFACT_DOWNLOAD_ERROR:
+
+    if all(states.values()) and vocabulary_ready:
+        try:
+            models, _ = _load_artifacts()
+            output_classes = {
+                name: int(model.output_shape[-1])
+                for name, model in models.items()
+            }
+            expected = len(CLASSES)
+            compatible = all(value == expected for value in output_classes.values())
+            message = (
+                "All three seven-class models and the text vocabulary are ready."
+                if compatible
+                else (
+                    "Model artifacts are from an older class configuration. "
+                    f"Expected {expected} outputs per model; found {output_classes}. "
+                    "Retrain all three models with the current seven-class dataset."
+                )
+            )
+            return {
+                "models": states,
+                "vocabulary": vocabulary_ready,
+                "ready": compatible,
+                "expected_classes": CLASSES,
+                "expected_class_count": expected,
+                "model_output_classes": output_classes,
+                "message": message,
+            }
+        except HTTPException as exc:
+            return {
+                "models": states,
+                "vocabulary": vocabulary_ready,
+                "ready": False,
+                "expected_classes": CLASSES,
+                "expected_class_count": len(CLASSES),
+                "message": str(exc.detail),
+            }
+
+    if _ARTIFACT_DOWNLOAD_ERROR:
         message = f"Model artifact download failed: {_ARTIFACT_DOWNLOAD_ERROR}"
     elif not os.getenv("HF_MODEL_REPO"):
         message = "Model artifacts are missing. Configure HF_MODEL_REPO or place the trained files in models/."
@@ -113,7 +148,9 @@ def model_status():
     return {
         "models": states,
         "vocabulary": vocabulary_ready,
-        "ready": ready,
+        "ready": False,
+        "expected_classes": CLASSES,
+        "expected_class_count": len(CLASSES),
         "message": message,
     }
 
@@ -140,6 +177,24 @@ def _load_artifacts():
         name: tf.keras.models.load_model(path, compile=False)
         for name, path in MODEL_PATHS.items()
     }
+    output_classes = {
+        name: int(model.output_shape[-1])
+        for name, model in models.items()
+    }
+    expected = len(CLASSES)
+    incompatible = {
+        name: count for name, count in output_classes.items()
+        if count != expected
+    }
+    if incompatible:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Model artifacts have incompatible output dimensions: {incompatible}. "
+                f"The current dataset requires {expected} output classes. "
+                "Retrain all three models before running inference."
+            ),
+        )
     vocabulary = json.loads(VOCABULARY_PATH.read_text(encoding="utf-8"))
     vectorizer = tf.keras.layers.TextVectorization(
         max_tokens=None,
