@@ -24,7 +24,7 @@ The original six-class models were evaluated on 750 held-out images. Seven-class
 
 ### Academic decisions confirmed with the professor
 
-The professor confirmed that either **Softmax or Sigmoid** can be used and that a **BiLSTM** is acceptable. This project keeps **Sigmoid** because one image may contain several of the seven target categories at the same time. Sigmoid gives each class an independent score; Softmax would force the six scores to compete as mutually exclusive alternatives.
+The professor confirmed that either **Softmax or Sigmoid** can be used and that a **BiLSTM** is acceptable. This project keeps **Sigmoid** because one image may contain several of the seven target categories at the same time. Sigmoid gives each class an independent score; Softmax would force the seven scores to compete as mutually exclusive alternatives.
 
 The text branch uses a trainable Keras embedding layer learned from the training captions, followed by a Bidirectional LSTM. The embedding vectors are learned during this project's training; pretrained GloVe or Word2Vec initialization is not used in the current implementation.
 
@@ -34,7 +34,7 @@ The **primary answer to “what is in this image?” is the Image-only CNN predi
 - **Text-only BiLSTM:** reads the caption only. It predicts among the seven supported labels; it cannot output a category outside bicycle, bird, bus, cat, dog, horse and motorcycle.
 - **Multimodal fusion:** receives both the image and caption, so its output can be influenced by a caption that does not accurately describe the image.
 
-Differences between those three outputs are part of the experiment: they show what each modality contributes. The image-only result remains independent of the caption.
+Differences between those three outputs are part of the experiment: they show what each modality contributes. The image-only result remains independent of the caption. The current model predicts only the seven selected COCO classes; it cannot identify objects from categories outside that set.
 
 ---
 
@@ -135,7 +135,7 @@ The EfficientNetB0 backbone is initially frozen. When fine-tuning is enabled, th
 4. Bidirectional LSTM with 64 units in each direction and recurrent dropout configured at 0.2.
 5. Dense projection layer with 128 units and ReLU.
 6. Dropout.
-7. Six-unit output layer producing class logits.
+7. Seven-unit output layer producing class logits.
 
 The vocabulary is adapted only from training captions. The embedding matrix is learned during training; pretrained GloVe/Word2Vec initialization is not used in the current version.
 
@@ -157,7 +157,7 @@ The fusion head is:
 4. Dropout (0.4).
 5. Dense layer (128 units, ReLU).
 6. Dropout (0.2).
-7. Six-unit output layer producing class logits.
+7. Seven-unit output layer producing class logits.
 
 The image and text encoders are trained jointly with the fusion head. The image encoder can be fine-tuned using the same staged procedure as the image-only model.
 
@@ -267,7 +267,7 @@ The results support a measured conclusion: fusion improves some metrics, particu
 
 The saved results are distinct from individual live-demo predictions. A single uploaded-image probability is not a replacement for held-out dataset evaluation.
 
-The live dashboard's primary visual prediction is the highest-scoring class from the image-only CNN. Its score details remain available for all six classes because the underlying task is multi-label. A supplied caption does not alter this image-only output; it only enables the separate BiLSTM and fusion comparisons.
+The live dashboard's primary visual prediction is the highest-scoring class from the image-only CNN. Its score details remain available for all seven classes because the underlying task is multi-label. A supplied caption does not alter this image-only output; it only enables the separate BiLSTM and fusion comparisons.
 
 ---
 
@@ -287,7 +287,7 @@ The static frontend is hosted on GitHub Pages. The TensorFlow inference service 
 | `GET /api/health` | Verify that the FastAPI service is responding |
 | `GET /api/models/status` | Check availability of all three models and the text vocabulary |
 | `GET /api/metrics` | Return the saved held-out evaluation report |
-| `POST /api/predict` | Accept an image and caption and return predictions from all three models |
+| `POST /api/predict` | Accept an image and optional caption; always return image-only output and return text/fusion outputs when a caption is supplied |
 
 The prediction endpoint accepts an image file and an optional caption as multipart form fields. The current maximum upload size is 12 MB. The service always runs the image-only CNN using the image pixels. If a non-empty caption is supplied, it also vectorizes the caption and runs the text-only BiLSTM and multimodal fusion models. Sigmoid is applied to each model's logits; per-class scores are returned, and labels above threshold 0.50 are marked as predicted.
 
@@ -357,7 +357,7 @@ python -m src.train --evaluate-only
 python -m pytest -q
 ```
 
-The latest recorded local test run completed with **5 passed**.
+The previous six-class version had a local test run with 5 passing tests. The updated seven-class sampler has additional tests; run the suite after pulling this commit before preparing the new manifest.
 
 ### 8.5 Cross-validation and hyperparameter search
 
@@ -434,7 +434,7 @@ Large dataset files, trained model weights and generated experiment outputs are 
 | Held-out comparison on 750 images | Saved and verified |
 | FastAPI image-only inference and optional three-branch comparison | Implemented; now includes output-dimension compatibility checks |
 | GitHub Pages dashboard | Updated with image-only primary output and optional caption comparisons |
-| Automated tests | 5 passed |
+| Automated tests | New seven-class sampler tests committed; local test run pending |
 | Cross-validation results | Not yet generated |
 | Hyperparameter-search results | Not yet generated |
 | Output activation and loss choice | Sigmoid + weighted Binary Cross-Entropy selected with professor's permission |
