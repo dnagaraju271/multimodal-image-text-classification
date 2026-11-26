@@ -103,25 +103,6 @@ def _candidates(split: str, folder: Path) -> list[dict]:
     return result
 
 
-def _balanced_subset(rows: list[dict], limit: int, seed: int) -> list[dict]:
-    if limit < 1:
-        raise ValueError("Image limits must be positive.")
-    pool = rows.copy()
-    random.Random(seed).shuffle(pool)
-    counts = {name: 0 for name in CLASSES}
-    selected = []
-    while pool and len(selected) < limit:
-        index = max(
-            range(len(pool)),
-            key=lambda i: sum(1.0 / (1 + counts[name]) for name in pool[i]["labels"]),
-        )
-        row = pool.pop(index)
-        selected.append(row)
-        for name in row["labels"]:
-            counts[name] += 1
-    return selected
-
-
 def _stratified_subset(rows: list[dict], limit: int, seed: int) -> list[dict]:
     """Sample single-label examples equally by class plus a fixed multi-label share.
 
