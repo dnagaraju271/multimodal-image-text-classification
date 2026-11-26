@@ -15,7 +15,7 @@ import tensorflow as tf
 
 from src.config import (
     CATEGORY_TO_CLASS, CLASSES, IMAGE_SIZE, MANIFEST, MAX_TOKENS,
-    PROCESSED, RAW, SEQUENCE_LENGTH, TARGET_CATEGORIES,
+    MULTI_LABEL_FRACTION, PROCESSED, RAW, SEQUENCE_LENGTH, TARGET_CATEGORIES,
 )
 
 ANNOTATIONS_URL = "http://images.cocodataset.org/annotations/annotations_trainval2017.zip"
@@ -122,6 +122,74 @@ def _balanced_subset(rows: list[dict], limit: int, seed: int) -> list[dict]:
     return selected
 
 
+def _stratified_subset(rows: list[dict], limit: int, seed: int) -> list[dict]:
+    """Sample single-label examples equally by class plus a fixed multi-label share.
+
+    The default 13.2% multi-label share yields 372 single-label examples per
+    class plus 396 multi-label examples for a 3,000-image training subset,
+    and 93 per class plus 99 multi-label examples for a 750-image validation
+    subset. Candidate rows are sampled only within their official COCO split.
+    """
+    if limit < len(CLASSES):
+        raise ValueError(
+            f"Image limit must be at least {len(CLASSES)} to include every class."
+        )
+
+    image_ids = [int(row["image_id"]) for row in rows]
+    if len(image_ids) != len(set(image_ids)):
+        raise ValueError("Candidate rows contain duplicate image IDs.")
+
+    multi_limit = int(round(limit * MULTI_LABEL_FRACTION))
+    single_total = limit - multi_limit
+    base_quota, remainder = divmod(single_total, len(CLASSES))
+    if base_quota < 1:
+        raise ValueError("Image limit is too small for the configured class strata.")
+
+    single_quotas = {
+        name: base_quota + int(index < remainder)
+        for index, name in enumerate(CLASSES)
+    }
+    single_pools = {
+        name: [
+            row for row in rows
+            if set(row["labels"]) == {name}
+        ]
+        for name in CLASSES
+    }
+    multi_pool = [
+        row for row in rows if len(set(row["labels"])) > 1
+    ]
+
+    for name, quota in single_quotas.items():
+        available = len(single_pools[name])
+        if available < quota:
+            raise ValueError(
+                f"Not enough {name}-only candidates: need {quota}, have {available}."
+            )
+    if len(multi_pool) < multi_limit:
+        raise ValueError(
+            f"Not enough multi-label candidates: need {multi_limit}, "
+            f"have {len(multi_pool)}."
+        )
+
+    rng = random.Random(seed)
+    selected = []
+    for name in CLASSES:
+        selected.extend(rng.sample(single_pools[name], single_quotas[name]))
+    if multi_limit:
+        selected.extend(rng.sample(multi_pool, multi_limit))
+
+    selected.sort(key=lambda row: int(row["image_id"]))
+    selected_ids = [int(row["image_id"]) for row in selected]
+    if len(selected_ids) != len(set(selected_ids)):
+        raise RuntimeError("Stratified sampling produced duplicate image IDs.")
+    if len(selected) != limit:
+        raise RuntimeError(
+            f"Stratified sampling produced {len(selected)} rows; expected {limit}."
+        )
+    return selected
+
+
 def _download_image(row: dict, split: str) -> tuple[dict, str | None]:
     target = RAW / "images" / f"{split}2017" / row["file_name"]
     # COCO publishes these image endpoints as HTTP. Do not rewrite them to HTTPS:
@@ -143,7 +211,12 @@ def prepare(max_train: int = 3000, max_val: int = 750, workers: int = 8) -> pd.D
     for split, limit in (("train", max_train), ("val", max_val)):
         candidates = _candidates(split, folder)
         print(f"{split}2017 candidate images with labels and captions: {len(candidates)}")
-        selected = _balanced_subset(candidates, limit, 42 if split == "train" else 43)
+        selected = _stratified_subset(candidates, limit, 42 if split == "train" else 43)
+        print(
+            f"  stratified selection: "
+            f"{sum(len(set(row['labels'])) == 1 for row in selected)} single-label, "
+            f"{sum(len(set(row['labels'])) > 1 for row in selected)} multi-label"
+        )
         completed, failures = [], []
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
             futures = [pool.submit(_download_image, row, split) for row in selected]
@@ -165,15 +238,30 @@ def prepare(max_train: int = 3000, max_val: int = 750, workers: int = 8) -> pd.D
     PROCESSED.mkdir(parents=True, exist_ok=True)
     frame.assign(labels=frame.labels.map(json.dumps)).to_csv(MANIFEST, index=False)
     coverage = {}
+    sampling_summary = {}
     for split, group in frame.groupby("split"):
         coverage[split] = class_image_counts(group, labels_column="labels")
+        label_sets = [set(_labels_as_list(value)) for value in group["labels"]]
+        sampling_summary[split] = {
+            "single_label_images": int(sum(len(labels) == 1 for labels in label_sets)),
+            "multi_label_images": int(sum(len(labels) > 1 for labels in label_sets)),
+            "single_label_images_by_class": {
+                name: int(sum(labels == {name} for labels in label_sets))
+                for name in CLASSES
+            },
+        }
     report = {
-        "task": "multi-label classification",
+        "task": "seven-class multi-label classification",
         "classes": CLASSES,
         "coco_category_ids": TARGET_CATEGORIES,
         "images": int(len(frame)),
         "split_counts": {k: int(v) for k, v in frame.split.value_counts().items()},
         "class_image_counts": coverage,
+        "sampling": {
+            "strategy": "equal single-class strata plus a sampled multi-label stratum",
+            "target_multi_label_fraction": MULTI_LABEL_FRACTION,
+            "actual_by_split": sampling_summary,
+        },
         "note": "Class counts overlap because an image can contain several target classes.",
     }
     (PROCESSED / "coverage_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
