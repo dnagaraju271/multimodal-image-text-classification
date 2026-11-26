@@ -18,20 +18,20 @@ The implementation contains and evaluates three branches:
 2. **Text-only model:** a trainable word-embedding layer followed by a Bidirectional Long Short-Term Memory network (BiLSTM).
 3. **Multimodal model:** image and text representations are concatenated and passed through fully connected fusion layers.
 
-The experiments use a bounded subset of MS COCO 2017. The six target categories are bicycle, bird, bus, cat, dog and horse. Ground-truth labels are derived from COCO instance annotations; captions are used as text-model input.
+The project is being extended to a seven-class subset of MS COCO 2017: bicycle, bird, bus, cat, dog, horse and motorcycle. Ground-truth labels are derived from COCO instance annotations; captions are used as text-model input. The existing six-class manifest and model artifacts are legacy artifacts and must not be used with the new seven-class configuration.
 
-The trained models have been evaluated on 750 held-out images. A FastAPI service also provides real inference for a newly uploaded image and caption, and a browser dashboard displays the three model outputs side by side.
+The original six-class models were evaluated on 750 held-out images. Seven-class dataset regeneration and model retraining are pending. The FastAPI service includes an image-only primary prediction and optional caption-based comparisons; it now checks model output dimensions to prevent old six-output models being used with the seven-class configuration.
 
 ### Academic decisions confirmed with the professor
 
-The professor confirmed that either **Softmax or Sigmoid** can be used and that a **BiLSTM** is acceptable. This project keeps **Sigmoid** because the selected COCO labels are multi-label: one image may contain several of the six target categories at the same time. Sigmoid gives each class an independent score; Softmax would force the six scores to compete as mutually exclusive alternatives.
+The professor confirmed that either **Softmax or Sigmoid** can be used and that a **BiLSTM** is acceptable. This project keeps **Sigmoid** because one image may contain several of the seven target categories at the same time. Sigmoid gives each class an independent score; Softmax would force the six scores to compete as mutually exclusive alternatives.
 
 The text branch uses a trainable Keras embedding layer learned from the training captions, followed by a Bidirectional LSTM. The embedding vectors are learned during this project's training; pretrained GloVe or Word2Vec initialization is not used in the current implementation.
 
 ### How to interpret a live prediction
 
 The **primary answer to “what is in this image?” is the Image-only CNN prediction**. That branch receives image pixels only; the caption is never passed to it. A caption is optional in the live dashboard. When a caption is supplied, the dashboard additionally runs:
-- **Text-only BiLSTM:** reads the caption only. It predicts among the six supported labels; it cannot output a category such as “train” because train is not one of the six target classes.
+- **Text-only BiLSTM:** reads the caption only. It predicts among the seven supported labels; it cannot output a category outside bicycle, bird, bus, cat, dog, horse and motorcycle.
 - **Multimodal fusion:** receives both the image and caption, so its output can be influenced by a caption that does not accurately describe the image.
 
 Differences between those three outputs are part of the experiment: they show what each modality contributes. The image-only result remains independent of the caption.
@@ -58,32 +58,27 @@ The project objectives are to:
 
 The project uses [MS COCO 2017](https://cocodataset.org/#download), which provides images, object-instance annotations and human-written captions.
 
-The current prepared subset contains:
+The target seven-class subset is configured for 3,000 training images from train2017 and 750 validation images from val2017 (3,750 total). The current on-disk manifest is still the legacy six-class version until the regeneration step is run.
 
-| Partition | Images | COCO partition |
-|---|---:|---|
-| Training | 3,000 | train2017 |
-| Validation | 750 | val2017 |
-| **Total** | **3,750** | |
+The seven selected COCO categories and eligible candidate counts (images with at least one selected category and at least one caption) are:
 
-The six selected COCO categories are:
+| Target class | COCO category ID | Eligible train candidates | Eligible validation candidates |
+|---|---:|---:|---:|
+| Bicycle | 2 | 3,252 | 149 |
+| Bird | 16 | 3,237 | 125 |
+| Bus | 6 | 3,952 | 189 |
+| Cat | 17 | 4,114 | 184 |
+| Dog | 18 | 4,385 | 177 |
+| Horse | 19 | 2,941 | 128 |
+| Motorcycle | 4 | 3,502 | 159 |
 
-| Target class | COCO category ID | Images containing class in the prepared subset |
-|---|---:|---:|
-| Bicycle | 2 | 900 |
-| Bird | 16 | 857 |
-| Bus | 6 | 873 |
-| Cat | 17 | 873 |
-| Dog | 18 | 873 |
-| Horse | 19 | 860 |
-
-Class counts overlap: an image containing more than one selected category contributes to the count of each category present. Therefore, the sum of class counts is greater than the number of unique images.
+These are candidate-pool counts from COCO annotations and captions, not selected-manifest counts. Class counts overlap: an image containing more than one selected category contributes to each relevant class.
 
 ### 3.2 How labels and captions are associated
 
 Labels are created from COCO **instance annotations**, not inferred from the captions. For each image ID:
 
-1. Read the instance annotations and retain the six target categories.
+1. Read the instance annotations and retain the seven target categories.
 2. Collect the selected target labels present in that image.
 3. Collect its associated caption annotations.
 4. Join the captions for that image into one text sequence.
@@ -91,7 +86,7 @@ Labels are created from COCO **instance annotations**, not inferred from the cap
 
 The manifest is stored at `dataset/processed/manifest.csv`. Class coverage information is written to `dataset/processed/coverage_report.json`.
 
-The data preparation code selects a bounded subset from images that have at least one target label and at least one caption. A greedy selection procedure prioritizes classes with lower current counts to improve class coverage.
+The data preparation code selects images that have at least one target label and at least one caption. The updated sampler first selects equal quotas of single-category images for each of the seven classes, then samples a separate multi-label stratum. With the configured 3,000/750 subset sizes and 13.2% multi-label share, the target quotas are 372 single-category images per class plus 396 multi-label training images, and 93 single-category images per class plus 99 multi-label validation images. The sampler fails with an explicit error if any stratum lacks enough candidates.
 
 ### 3.3 Split and leakage controls
 
@@ -124,7 +119,7 @@ This is a multi-label classification task, not object detection. The implementat
 2. ImageNet-pretrained EfficientNetB0 with the classification head removed and global average pooling.
 3. Dense projection layer with 256 units and ReLU.
 4. Dropout.
-5. Six-unit output layer producing class logits.
+5. Seven-unit output layer producing class logits.
 
 The EfficientNetB0 backbone is initially frozen. When fine-tuning is enabled, the final 30 backbone layers are selectively unfrozen; Batch Normalization layers remain frozen. The fine-tuning stage uses a lower learning rate.
 
@@ -181,13 +176,13 @@ The same output/loss/optimisation strategy is used for the image-only, text-only
 | Component | Choice in this project | Explanation |
 |---|---|---|
 | Hidden-layer activation | **ReLU** | Used in the image, text and fusion projection layers to introduce non-linearity. |
-| Output activation | **Sigmoid** (independent per class) | Converts each of the six output logits into an independent probability. Several classes may be predicted for one image. |
+| Output activation | **Sigmoid** (independent per class) | Converts each of the seven output logits into an independent probability. Several classes may be predicted for one image. |
 | Loss function | **Class-weighted Binary Cross-Entropy with logits** | Suitable for multi-label targets. The positive weight compensates for class-frequency imbalance. |
 | Optimizer | **Adam** | Updates model parameters using adaptive estimates of first and second moments of the gradients. |
 | Initial learning rate | **0.0001 (1 × 10⁻⁴)** | Used for the initial training stage. |
 | Fine-tuning learning rate | **0.00001 (1 × 10⁻⁵)** | One tenth of the initial learning rate for the unfrozen EfficientNetB0 layers. |
 
-The final Dense layer produces six raw logits (z_i). The sigmoid operation is:
+The final Dense layer produces seven raw logits (z_i). The sigmoid operation is:
 
 `p_i = 1 / (1 + exp(-z_i))`
 
@@ -234,7 +229,7 @@ Actual training may stop before the requested maximum number of epochs because o
 
 ## 6. Evaluation methodology
 
-The three saved models were evaluated on the same 750-image official validation partition at a 0.50 threshold.
+The saved six-class baseline models were evaluated on the same 750-image official validation partition at a 0.50 threshold. These are historical results only; they do not measure the new seven-class configuration.
 
 The project records:
 
@@ -249,14 +244,14 @@ The project records:
 - **Precision:** fraction of predicted positive labels that are correct.
 - **Recall:** fraction of actual positive labels that are recovered.
 - **F1:** harmonic mean of precision and recall.
-- **Macro F1:** arithmetic mean of the six class-level F1 scores; each class has equal weight.
+- **Macro F1:** arithmetic mean of the class-level F1 scores; each class has equal weight (seven classes in the new configuration).
 - **Micro F1:** aggregates true positives, false positives and false negatives over all class decisions.
 - **mAP:** mean of the per-class Average Precision values, measuring ranking quality across thresholds.
-- **Exact match:** fraction of images for which all six predicted labels exactly match the ground truth.
+- **Exact match:** fraction of images for which all seven predicted labels exactly match the ground truth in the new configuration.
 
-### 6.1 Saved held-out validation results
+### 6.1 Archived six-class baseline results
 
-The following values are from the saved `results/model_comparison.json` report:
+The following values are from the saved `results/model_comparison.json` report generated before motorcycle was added. Treat them as historical six-class baseline values, not as results for the new seven-class models:
 
 | Model | Macro F1 | Micro F1 | mAP | Exact-match accuracy |
 |---|---:|---:|---:|---:|
@@ -266,7 +261,7 @@ The following values are from the saved `results/model_comparison.json` report:
 
 ### 6.2 Results discussion
 
-The multimodal fusion model has the highest macro F1, micro F1 and mAP among the three saved models. Its macro F1 improvement over the text-only model is modest (0.7593 versus 0.7551). Exact-match accuracy is the same for the text-only and fusion models (0.5067).
+In the historical six-class run, the multimodal fusion model had the highest macro F1, micro F1 and mAP among the three saved models. Its macro F1 improvement over the text-only model is modest (0.7593 versus 0.7551). Exact-match accuracy is the same for the text-only and fusion models (0.5067).
 
 The results support a measured conclusion: fusion improves some metrics, particularly mAP, on this selected subset, but it does not improve every metric. The findings should not be generalized to all COCO images without further evaluation.
 
@@ -418,11 +413,11 @@ Large dataset files, trained model weights and generated experiment outputs are 
 
 ## 10. Limitations and open questions
 
-1. **Multi-label output:** the professor confirmed that either Softmax or Sigmoid is acceptable. Sigmoid was selected because COCO images can contain multiple selected classes. A Softmax version would require mutually exclusive single-label targets, model/loss changes and retraining.
+1. **Multi-label output:** the professor confirmed that either Softmax or Sigmoid is acceptable. Sigmoid is used because COCO images can contain multiple selected classes. Motorcycle is now the seventh target; all seven-class models must be retrained after regenerating the manifest.
 2. **Embedding representation:** the current trainable Keras embedding is learned from the training captions; pretrained GloVe or Word2Vec vectors are not used. Rare words and words outside the fitted vocabulary may be represented poorly.
-3. **Bounded dataset:** 3,750 images and six selected classes are a subset of COCO 2017, not the full dataset distribution.
+3. **Bounded dataset:** 3,750 images and seven selected classes are a subset of COCO 2017, not the full dataset distribution.
 4. **Caption ambiguity:** captions may omit objects that are visibly present in an image.
-5. **No localization:** this is image-level multi-label classification; it does not output bounding boxes or object counts.
+5. **No localization:** this is image-level multi-label classification; it does not output bounding boxes or object counts. Categories outside the seven selected classes cannot be identified by this classifier.
 6. **Experiment evidence:** cross-validation and randomized-search implementations exist, but their result files were missing at the latest audit.
 7. **Temporary demo hosting:** the live inference API depends on a locally running Mac and temporary Quick Tunnel; this is suitable for a controlled demonstration, not guaranteed production uptime.
 8. **Generalization:** the saved held-out results measure this selected subset and split. Broader claims require additional evaluation.
@@ -433,10 +428,11 @@ Large dataset files, trained model weights and generated experiment outputs are 
 
 | Item | Status at latest audit |
 |---|---|
-| COCO subset and manifest (3,750 images) | Verified |
-| Three trained Keras models and vocabulary | Available locally |
+| Seven-class COCO sampling code and tests | Implemented in repository; local pull and tests pending |
+| Seven-class manifest (3,750 images) | Not yet regenerated; current manifest is legacy six-class |
+| Seven-class Keras models and vocabulary | Not yet trained; existing local/Hugging Face artifacts are legacy six-class |
 | Held-out comparison on 750 images | Saved and verified |
-| FastAPI image-only inference and optional three-branch comparison | Implemented; local demo to be rechecked after pulling latest changes |
+| FastAPI image-only inference and optional three-branch comparison | Implemented; now includes output-dimension compatibility checks |
 | GitHub Pages dashboard | Updated with image-only primary output and optional caption comparisons |
 | Automated tests | 5 passed |
 | Cross-validation results | Not yet generated |
