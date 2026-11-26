@@ -97,7 +97,7 @@ The data preparation code selects images that have at least one target label and
 - The text vocabulary is fitted using training captions only.
 - All three model branches use the same image IDs and target labels.
 
-The latest local integrity check found 3,750 manifest rows, zero duplicate image IDs and zero missing image files.
+The latest integrity check of the legacy six-class manifest found 3,750 rows, zero duplicate image IDs and zero missing image files. The seven-class manifest must be regenerated and checked before seven-class training.
 
 ### 3.4 Task formulation and limitation
 
@@ -229,7 +229,7 @@ Actual training may stop before the requested maximum number of epochs because o
 
 ## 6. Evaluation methodology
 
-The saved six-class baseline models were evaluated on the same 750-image official validation partition at a 0.50 threshold. These are historical results only; they do not measure the new seven-class configuration.
+The saved six-class baseline models were evaluated on the same 750-image official validation partition at a 0.50 threshold. These are historical results only; they do not measure the new seven-class configuration. The seven-class evaluation results must replace this table after retraining.
 
 The project records:
 
@@ -431,7 +431,7 @@ Large dataset files, trained model weights and generated experiment outputs are 
 | Seven-class COCO sampling code and tests | Implemented in repository; local pull and tests pending |
 | Seven-class manifest (3,750 images) | Not yet regenerated; current manifest is legacy six-class |
 | Seven-class Keras models and vocabulary | Not yet trained; existing local/Hugging Face artifacts are legacy six-class |
-| Held-out comparison on 750 images | Saved and verified |
+| Legacy six-class held-out comparison on 750 images | Saved and verified; not valid for the seven-class model |
 | FastAPI image-only inference and optional three-branch comparison | Implemented; now includes output-dimension compatibility checks |
 | GitHub Pages dashboard | Updated with image-only primary output and optional caption comparisons |
 | Automated tests | New seven-class sampler tests committed; local test run pending |
