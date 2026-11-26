@@ -7,7 +7,7 @@ MANIFEST = PROCESSED / "manifest.csv"
 MODELS = ROOT / "models"
 RESULTS = ROOT / "results"
 
-# Initial candidate classes. Confirm image counts in coverage_report.json.
+# Seven COCO target categories used for multi-label image classification.
 TARGET_CATEGORIES = {
     "bicycle": 2,
     "bird": 16,
@@ -15,7 +15,14 @@ TARGET_CATEGORIES = {
     "cat": 17,
     "dog": 18,
     "horse": 19,
+    "motorcycle": 4,
 }
+
+# The proposed 3,000/750 subsets allocate 13.2% of images to multi-label
+# examples and distribute the remaining images equally across single-label
+# strata. For 3,000 training and 750 validation images this gives:
+# 372/93 single-label images per class and 396/99 multi-label images.
+MULTI_LABEL_FRACTION = 0.132
 CLASSES = list(TARGET_CATEGORIES)
 CATEGORY_TO_CLASS = {v: k for k, v in TARGET_CATEGORIES.items()}
 IMAGE_SIZE = (224, 224)
