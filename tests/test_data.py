@@ -100,10 +100,22 @@ def test_stratified_subset_is_reproducible_and_covers_seven_classes():
 
 
 def test_stratified_subset_rejects_insufficient_class_candidates():
-    rows = [
-        {"image_id": index + 1, "labels": [name]}
-        for index, name in enumerate(CLASSES[:-1])
-    ]
+    rows = []
+    image_id = 1
+
+    # The first six single-label strata have enough examples; motorcycle does not.
+    for name in CLASSES[:-1]:
+        for _ in range(12):
+            rows.append({"image_id": image_id, "labels": [name]})
+            image_id += 1
+
+    # Include enough multi-label candidates so the missing stratum is the failure.
+    for index in range(12):
+        rows.append({
+            "image_id": image_id,
+            "labels": [CLASSES[index % 6], CLASSES[(index + 1) % 6]],
+        })
+        image_id += 1
 
     with pytest.raises(ValueError, match="Not enough motorcycle-only candidates"):
         _stratified_subset(rows, limit=75, seed=42)
